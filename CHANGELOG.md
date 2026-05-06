@@ -16,6 +16,8 @@
 
 - Document the read-only `metadata --json`, `status --json`, and
   `doctor --json` control surface for launchers, automation, and CI checks.
+- Refresh the repo-local `discrawl` agent skill for local Discord archive,
+  freshness, query, boundary, TUI, and verification workflows.
 
 ### Fixes
 
