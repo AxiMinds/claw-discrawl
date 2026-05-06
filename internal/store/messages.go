@@ -263,6 +263,9 @@ func (s *Store) hydrateMessageThreadContext(ctx context.Context, rows []MessageR
 	if err != nil {
 		return nil, err
 	}
+	if err := contextRows.Err(); err != nil {
+		return nil, err
+	}
 	if err := s.resolveMessageDisplayMentions(ctx, extra); err != nil {
 		return nil, err
 	}

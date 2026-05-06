@@ -153,6 +153,17 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		require.NotEmpty(t, out.String())
 	}
 
+	for _, args := range [][]string{
+		{"--config", cfgPath, "metadata", "--json"},
+		{"--config", cfgPath, "status", "--json"},
+	} {
+		var out bytes.Buffer
+		require.NoError(t, Run(ctx, args, &out, &bytes.Buffer{}))
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
+		require.NotEmpty(t, payload)
+	}
+
 	before, err := os.ReadFile(dbPath)
 	require.NoError(t, err)
 	var out bytes.Buffer
@@ -181,6 +192,60 @@ func TestTUIHelpReturnsUsage(t *testing.T) {
 	require.Contains(t, stdout.String(), "right-click")
 	require.Contains(t, stdout.String(), "#              jump")
 	require.Empty(t, stderr.String())
+}
+
+func TestControlStatusIncludesShareAndFileSizes(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "discrawl.db")
+	require.NoError(t, os.WriteFile(dbPath, []byte("db"), 0o600))
+	require.NoError(t, os.WriteFile(dbPath+"-wal", []byte("wal"), 0o600))
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Share.Remote = "https://github.com/openclaw/discrawl-share.git"
+	cfg.Share.RepoPath = filepath.Join(dir, "share")
+	status := store.Status{
+		DBPath:       dbPath,
+		MessageCount: 5,
+		ChannelCount: 2,
+	}
+
+	out := controlStatus(filepath.Join(dir, "config.toml"), cfg, status, true)
+	require.Equal(t, int64(2), out.DatabaseBytes)
+	require.Equal(t, int64(3), out.WALBytes)
+	require.Zero(t, fileSize(filepath.Join(dir, "missing.db")))
+	require.NotNil(t, out.Share)
+	require.True(t, out.Share.Enabled)
+	require.True(t, out.Share.NeedsUpdate)
+	require.Contains(t, out.Summary, "5 messages")
+}
+
+func TestFormattingAndTUISourceBranches(t *testing.T) {
+	require.Equal(t, "-", formatDaysSilent(-1))
+	require.Equal(t, "4", formatDaysSilent(4))
+	require.Equal(t, "0", formatWindowDuration(0))
+	require.Equal(t, "2d", formatWindowDuration(48*time.Hour))
+	require.Equal(t, "3h", formatWindowDuration(3*time.Hour))
+	require.Equal(t, "1h30m0s", formatWindowDuration(90*time.Minute))
+	require.Equal(t, 6*time.Hour, mustDuration("bogus"))
+	require.Equal(t, 15*time.Minute, mustDuration("15m"))
+
+	cfg := config.Default()
+	cfg.DBPath = "/tmp/discrawl.db"
+	r := &runtime{cfg: cfg}
+	require.Equal(t, "local", r.archiveSourceKind())
+	require.Equal(t, cfg.DBPath, r.archiveSourceLocation())
+	guilds, err := r.resolveTUIGuilds(false, "", "")
+	require.NoError(t, err)
+	require.Empty(t, guilds)
+
+	r.cfg.DefaultGuildID = "guild-one"
+	guilds, err = r.resolveTUIGuilds(false, "", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"guild-one"}, guilds)
+
+	r.cfg.Share.Remote = "https://github.com/openclaw/discrawl-share.git"
+	require.Equal(t, "remote", r.archiveSourceKind())
+	require.Equal(t, r.cfg.Share.Remote, r.archiveSourceLocation())
 }
 
 func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
