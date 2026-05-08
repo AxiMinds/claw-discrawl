@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/openclaw/crawlkit/embed"
 	"github.com/openclaw/discrawl/internal/config"
-	"github.com/openclaw/discrawl/internal/embed"
 	"github.com/openclaw/discrawl/internal/store"
 )
 
@@ -112,7 +112,7 @@ func (r *runtime) semanticSearchOptions(opts store.SearchOptions) (store.Semanti
 	providerFactory := r.newEmbed
 	if providerFactory == nil {
 		providerFactory = func(cfg config.EmbeddingsConfig) (embed.Provider, error) {
-			return embed.NewProvider(cfg)
+			return embed.NewProvider(crawlkitEmbeddingConfig(cfg))
 		}
 	}
 	provider, err := providerFactory(r.cfg.Search.Embeddings)

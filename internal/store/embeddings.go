@@ -1,15 +1,14 @@
 package store
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/openclaw/discrawl/internal/embed"
+	"github.com/openclaw/crawlkit/embed"
+	"github.com/openclaw/crawlkit/vector"
 )
 
 const (
@@ -476,28 +475,23 @@ func capRunes(value string, maxChars int) string {
 	return string(runes[:maxChars])
 }
 
-func EncodeEmbeddingVector(vector []float32) ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0, len(vector)*4))
-	for _, value := range vector {
-		if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
-			return nil, fmt.Errorf("encode embedding vector: %w", err)
-		}
+func EncodeEmbeddingVector(values []float32) ([]byte, error) {
+	blob, err := vector.EncodeFloat32(values)
+	if err != nil {
+		return nil, fmt.Errorf("encode embedding vector: %w", err)
 	}
-	return buf.Bytes(), nil
+	return blob, nil
 }
 
 func DecodeEmbeddingVector(blob []byte) ([]float32, error) {
 	if len(blob)%4 != 0 {
 		return nil, fmt.Errorf("embedding blob length %d is not a float32 multiple", len(blob))
 	}
-	out := make([]float32, len(blob)/4)
-	reader := bytes.NewReader(blob)
-	for i := range out {
-		if err := binary.Read(reader, binary.LittleEndian, &out[i]); err != nil {
-			return nil, fmt.Errorf("decode embedding vector: %w", err)
-		}
+	values, err := vector.DecodeFloat32(blob)
+	if err != nil {
+		return nil, fmt.Errorf("decode embedding vector: %w", err)
 	}
-	return out, nil
+	return values, nil
 }
 
 func (s *Store) EmbeddingBacklog(ctx context.Context) (int, error) {

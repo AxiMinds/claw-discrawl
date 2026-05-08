@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openclaw/crawlkit/embed"
 	"github.com/stretchr/testify/require"
-
-	"github.com/openclaw/discrawl/internal/embed"
 )
 
 func TestUpsertMessagesBatch(t *testing.T) {

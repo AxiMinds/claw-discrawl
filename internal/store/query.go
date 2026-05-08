@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/openclaw/crawlkit/vector"
 )
 
 const (
@@ -160,7 +161,7 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 	if len(opts.QueryVector) != opts.Dimensions {
 		return nil, fmt.Errorf("semantic query embedding dimensions mismatch: got %d want %d", len(opts.QueryVector), opts.Dimensions)
 	}
-	queryNorm := vectorNorm(opts.QueryVector)
+	queryNorm := vector.Norm(opts.QueryVector)
 	if queryNorm == 0 {
 		return nil, errors.New("semantic query embedding returned a zero vector")
 	}
@@ -236,15 +237,18 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 		if dimensions != opts.Dimensions {
 			return nil, fmt.Errorf("stored embedding dimensions mismatch for message %s: got %d want %d", row.MessageID, dimensions, opts.Dimensions)
 		}
-		vector, err := DecodeEmbeddingVector(blob)
+		storedVector, err := DecodeEmbeddingVector(blob)
 		if err != nil {
 			return nil, fmt.Errorf("decode embedding for message %s: %w", row.MessageID, err)
 		}
-		if len(vector) != dimensions {
-			return nil, fmt.Errorf("stored embedding vector length mismatch for message %s: got %d want %d", row.MessageID, len(vector), dimensions)
+		if len(storedVector) != dimensions {
+			return nil, fmt.Errorf("stored embedding vector length mismatch for message %s: got %d want %d", row.MessageID, len(storedVector), dimensions)
 		}
-		score, err := cosineSimilarity(opts.QueryVector, queryNorm, vector)
+		score, err := vector.CosineSimilarity(opts.QueryVector, queryNorm, storedVector)
 		if err != nil {
+			if strings.Contains(err.Error(), "candidate vector is zero") {
+				return nil, fmt.Errorf("score embedding for message %s: stored embedding vector is zero", row.MessageID)
+			}
 			return nil, fmt.Errorf("score embedding for message %s: %w", row.MessageID, err)
 		}
 		row.CreatedAt = parseTime(created)
@@ -328,26 +332,23 @@ func fuseSearchResults(ftsResults, semanticResults []SearchResult, limit int) []
 	if limit <= 0 {
 		limit = 20
 	}
-	entries := make(map[string]*hybridSearchEntry, len(ftsResults)+len(semanticResults))
-	addResults := func(results []SearchResult, weight float64, fts bool) {
-		for index, result := range results {
-			entry := entries[result.MessageID]
-			if entry == nil {
-				entry = &hybridSearchEntry{result: result}
-				entries[result.MessageID] = entry
-			}
-			if fts {
-				entry.hasFTS = true
-			}
-			entry.score += weight / (rrfK + float64(index+1))
-		}
+	id := func(result SearchResult) string {
+		return result.MessageID
 	}
-	addResults(ftsResults, ftsRRFWeight, true)
-	addResults(semanticResults, semanticRRFWeight, false)
-
-	merged := make([]hybridSearchEntry, 0, len(entries))
-	for _, entry := range entries {
-		merged = append(merged, *entry)
+	ftsIDs := make(map[string]struct{}, len(ftsResults))
+	for _, result := range ftsResults {
+		ftsIDs[result.MessageID] = struct{}{}
+	}
+	fused := vector.ReciprocalRankFusion(
+		[][]SearchResult{ftsResults, semanticResults},
+		[]func(SearchResult) string{id, id},
+		[]float64{ftsRRFWeight, semanticRRFWeight},
+		rrfK,
+	)
+	merged := make([]hybridSearchEntry, 0, len(fused))
+	for _, entry := range fused {
+		_, hasFTS := ftsIDs[entry.Item.MessageID]
+		merged = append(merged, hybridSearchEntry{result: entry.Item, score: entry.Score, hasFTS: hasFTS})
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
 		if merged[i].score != merged[j].score {
@@ -488,29 +489,6 @@ func (s *Store) searchFallback(ctx context.Context, opts SearchOptions) ([]Searc
 		out = append(out, row)
 	}
 	return out, rows.Err()
-}
-
-func cosineSimilarity(query []float32, queryNorm float64, vector []float32) (float64, error) {
-	if len(vector) != len(query) {
-		return 0, fmt.Errorf("dimensions mismatch: got %d want %d", len(vector), len(query))
-	}
-	vectorNorm := vectorNorm(vector)
-	if vectorNorm == 0 {
-		return 0, errors.New("stored embedding vector is zero")
-	}
-	var dot float64
-	for i := range query {
-		dot += float64(query[i]) * float64(vector[i])
-	}
-	return dot / (queryNorm * vectorNorm), nil
-}
-
-func vectorNorm(vector []float32) float64 {
-	var sum float64
-	for _, value := range vector {
-		sum += float64(value) * float64(value)
-	}
-	return math.Sqrt(sum)
 }
 
 func (s *Store) Members(ctx context.Context, guildID, query string, limit int) ([]MemberRow, error) {

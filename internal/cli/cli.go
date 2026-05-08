@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/openclaw/crawlkit/embed"
 	"github.com/openclaw/discrawl/internal/config"
 	"github.com/openclaw/discrawl/internal/discord"
-	"github.com/openclaw/discrawl/internal/embed"
 	"github.com/openclaw/discrawl/internal/share"
 	"github.com/openclaw/discrawl/internal/store"
 	"github.com/openclaw/discrawl/internal/syncer"
@@ -116,6 +116,17 @@ type runtime struct {
 	newSyncer   func(syncer.Client, *store.Store, *slog.Logger) syncService
 	newEmbed    func(config.EmbeddingsConfig) (embed.Provider, error)
 	now         func() time.Time
+}
+
+func crawlkitEmbeddingConfig(cfg config.EmbeddingsConfig) embed.Config {
+	return embed.Config{
+		Provider:       cfg.Provider,
+		Model:          cfg.Model,
+		BaseURL:        cfg.BaseURL,
+		APIKeyEnv:      cfg.APIKeyEnv,
+		RequestTimeout: cfg.RequestTimeout,
+		MaxInputChars:  cfg.MaxInputChars,
+	}
 }
 
 type discordClient interface {

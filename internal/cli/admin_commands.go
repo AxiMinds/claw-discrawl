@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/openclaw/crawlkit/embed"
 	"github.com/openclaw/discrawl/internal/config"
 	"github.com/openclaw/discrawl/internal/discord"
 	"github.com/openclaw/discrawl/internal/discorddesktop"
-	"github.com/openclaw/discrawl/internal/embed"
 	"github.com/openclaw/discrawl/internal/share"
 	"github.com/openclaw/discrawl/internal/store"
 	"github.com/openclaw/discrawl/internal/syncer"
@@ -374,7 +374,7 @@ func (r *runtime) runEmbed(args []string) error {
 	providerFactory := r.newEmbed
 	if providerFactory == nil {
 		providerFactory = func(cfg config.EmbeddingsConfig) (embed.Provider, error) {
-			return embed.NewProvider(cfg)
+			return embed.NewProvider(crawlkitEmbeddingConfig(cfg))
 		}
 	}
 	provider, err := providerFactory(r.cfg.Search.Embeddings)
@@ -435,7 +435,7 @@ func (r *runtime) runDoctor(args []string) error {
 		report["share_stale_after"] = cfg.Share.StaleAfter
 	}
 	if cfg.Search.Embeddings.Enabled {
-		check := embed.CheckProvider(r.ctx, cfg.Search.Embeddings)
+		check := embed.CheckProvider(r.ctx, crawlkitEmbeddingConfig(cfg.Search.Embeddings))
 		report["embeddings"] = check.Status
 		report["embeddings_provider"] = check.Provider
 		report["embeddings_model"] = check.Model
