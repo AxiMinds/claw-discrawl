@@ -125,6 +125,63 @@ Commands:
 `)
 }
 
+func printCommandUsage(w io.Writer, args []string) error {
+	if len(args) != 1 {
+		return usageErr(errors.New("usage: discrawl help <command>"))
+	}
+	text, ok := commandUsage[args[0]]
+	if !ok {
+		return usageErr(fmt.Errorf("unknown help topic %q", args[0]))
+	}
+	_, _ = fmt.Fprint(w, text)
+	return nil
+}
+
+var commandUsage = map[string]string{
+	"search": `Usage:
+  discrawl search [flags] <query>
+
+Flags:
+  --mode fts|semantic|hybrid  Search mode.
+  --channel ID_OR_NAME        Filter by channel id or name.
+  --author ID_OR_NAME         Filter by author id or name.
+  --limit N                   Maximum results. Default: 20.
+  --include-empty             Include empty/attachment-only messages.
+  --dm                        Search local desktop DM cache.
+  --guild ID                  Restrict to one guild id.
+  --guilds ID,ID              Restrict to guild ids.
+`,
+	"messages": `Usage:
+  discrawl messages [flags]
+
+Flags:
+  --channel ID_OR_NAME        Filter by channel id or name.
+  --author ID_OR_NAME         Filter by author id or name.
+  --hours N                   Messages from the last N hours.
+  --days N                    Messages from the last N days.
+  --since RFC3339             Messages at or after timestamp.
+  --before RFC3339            Messages before timestamp.
+  --limit N                   Maximum rows. Default: 200.
+  --last N                    Most recent N rows.
+  --all                       Return all matching rows.
+  --sync                      Refresh channel before reading.
+  --include-empty             Include empty/attachment-only messages.
+  --dm                        Read local desktop DM cache.
+  --guild ID                  Restrict to one guild id.
+  --guilds ID,ID              Restrict to guild ids.
+`,
+	"sql": `Usage:
+  discrawl sql [--unsafe --confirm] <query>
+  discrawl sql [--unsafe --confirm] -
+
+Flags:
+  --unsafe                    Allow write queries.
+  --confirm                   Required with --unsafe.
+
+Read-only SQL is allowed by default. Use "-" or no query to read SQL from stdin.
+`,
+}
+
 func printRows(w io.Writer, cols []string, rows [][]string) error {
 	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, strings.Join(cols, "\t"))

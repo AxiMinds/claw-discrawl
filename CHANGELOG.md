@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.1 - Unreleased
+
+### Changes
+
+- Moved top-level CLI parsing onto Kong while preserving Discrawl's existing command dispatch and archive lock policy.
+
+### Fixes
+
+- `help search`, `search --help`, `messages --help`, and `sql --help` now print focused command help without opening config, stores, or triggering Git snapshot auto-update.
+
 ## 0.7.0 - 2026-05-08
 
 ### Changes

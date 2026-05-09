@@ -68,9 +68,10 @@ If SQLite reports busy/locked, check for stray `discrawl` processes before retry
 3. Prefer CLI search/messages for slices; use read-only SQL for exact counts.
 4. Report absolute date spans, counts, channel/DM names, and known gaps.
 
-Use root `discrawl --help` for command list. Subcommand `--help` currently only
-returns `flag: help requested`, and read commands may auto-update the git share
-unless `DISCRAWL_NO_AUTO_UPDATE=1` is set.
+Use root or subcommand help for syntax: `discrawl --help`,
+`discrawl help search`, `discrawl search --help`. Use
+`DISCRAWL_NO_AUTO_UPDATE=1` for read smokes when you do not want git-share
+updates.
 
 Common commands:
 

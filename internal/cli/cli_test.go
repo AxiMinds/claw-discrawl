@@ -38,7 +38,7 @@ func TestHelpAndVersion(t *testing.T) {
 
 	out.Reset()
 	require.NoError(t, Run(context.Background(), []string{"--version"}, &out, &bytes.Buffer{}))
-	require.Contains(t, out.String(), "0.7.0")
+	require.Contains(t, out.String(), "0.7.1")
 
 	err := Run(context.Background(), []string{"bogus"}, &out, &bytes.Buffer{})
 	require.Equal(t, 2, ExitCode(err))
@@ -1956,6 +1956,26 @@ func TestCommandUsageBranches(t *testing.T) {
 		require.Equal(t, 2, ExitCode(err), tc.args)
 		require.ErrorContains(t, err, tc.want, tc.args)
 	}
+}
+
+func TestCommandHelpDoesNotOpenConfigOrStore(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"--config", filepath.Join(t.TempDir(), "missing.toml"), "help", "search"},
+		{"--config", filepath.Join(t.TempDir(), "missing.toml"), "search", "--help"},
+		{"--config", filepath.Join(t.TempDir(), "missing.toml"), "messages", "--help"},
+		{"--config", filepath.Join(t.TempDir(), "missing.toml"), "sql", "--help"},
+	} {
+		var stdout, stderr bytes.Buffer
+		require.NoError(t, Run(context.Background(), args, &stdout, &stderr), "args=%v", args)
+		require.Contains(t, stdout.String(), "Usage:", "args=%v", args)
+		require.Empty(t, stderr.String(), "args=%v", args)
+	}
+
+	err := Run(context.Background(), []string{"help", "wat"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown help topic "wat"`)
 }
 
 func TestHelpers(t *testing.T) {

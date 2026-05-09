@@ -3,13 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/bwmarrin/discordgo"
 	"github.com/openclaw/crawlkit/embed"
 	"github.com/openclaw/discrawl/internal/config"
@@ -47,54 +48,99 @@ func ExitCode(err error) int {
 }
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 || rootHelpRequested(args, "config") {
 		printUsage(stdout)
 		return nil
 	}
-	global := flag.NewFlagSet("discrawl", flag.ContinueOnError)
-	global.SetOutput(io.Discard)
-	configPath := global.String("config", "", "")
-	jsonOut := global.Bool("json", false, "")
-	plainOut := global.Bool("plain", false, "")
-	quiet := global.Bool("quiet", false, "")
-	global.BoolVar(quiet, "q", false, "")
-	verbose := global.Bool("verbose", false, "")
-	global.BoolVar(verbose, "v", false, "")
-	versionFlag := global.Bool("version", false, "")
-	global.Bool("no-color", false, "")
-	if err := global.Parse(args); err != nil {
+	var global discrawlRootArgs
+	if err := parseKongArgs(&global, args, "discrawl", stdout, stderr); err != nil {
 		return usageErr(err)
 	}
-	if *versionFlag {
+	if global.Version {
 		_, _ = io.WriteString(stdout, version+"\n")
 		return nil
 	}
-	rest := global.Args()
-	if len(rest) == 0 || rest[0] == "help" || rest[0] == "--help" || rest[0] == "-h" {
+	rest := global.Args
+	if len(rest) == 0 || rest[0] == "--help" || rest[0] == "-h" || (rest[0] == "help" && len(rest) == 1) {
 		printUsage(stdout)
 		return nil
+	}
+	if rest[0] == "help" {
+		return printCommandUsage(stdout, rest[1:])
 	}
 	if rest[0] == "version" {
 		_, _ = io.WriteString(stdout, version+"\n")
 		return nil
 	}
 	level := slog.LevelInfo
-	if *quiet {
+	if global.Quiet {
 		level = slog.LevelError
 	}
-	if *verbose {
+	if global.Verbose {
 		level = slog.LevelDebug
 	}
 	runtime := &runtime{
 		ctx:        ctx,
-		configPath: config.ResolvePath(*configPath),
+		configPath: config.ResolvePath(global.Config),
 		stdout:     stdout,
 		stderr:     stderr,
-		json:       *jsonOut,
-		plain:      *plainOut,
+		json:       global.JSON,
+		plain:      global.Plain,
 		logger:     slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})),
 	}
 	return runtime.dispatch(rest)
+}
+
+type discrawlRootArgs struct {
+	Config  string   `help:"Config path."`
+	JSON    bool     `name:"json" help:"Write JSON output."`
+	Plain   bool     `help:"Write stable plain text output when available."`
+	Quiet   bool     `short:"q" help:"Only log errors."`
+	Verbose bool     `short:"v" help:"Enable debug logging."`
+	Version bool     `help:"Print version and exit."`
+	NoColor bool     `name:"no-color" help:"Disable color output."`
+	Args    []string `arg:"" optional:"" passthrough:"partial" name:"command" help:"Command and arguments."`
+}
+
+func rootHelpRequested(args []string, valueFlags ...string) bool {
+	valueFlagSet := make(map[string]struct{}, len(valueFlags))
+	for _, flag := range valueFlags {
+		valueFlagSet[flag] = struct{}{}
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--help" || arg == "-h" || (arg == "help" && i == len(args)-1) {
+			return true
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return false
+		}
+		if strings.HasPrefix(arg, "--") {
+			name := strings.TrimPrefix(arg, "--")
+			if before, _, ok := strings.Cut(name, "="); ok {
+				name = before
+			} else if _, ok := valueFlagSet[name]; ok {
+				i++
+			}
+		}
+	}
+	return false
+}
+
+func parseKongArgs(target any, args []string, name string, stdout, stderr io.Writer, options ...kong.Option) error {
+	opts := []kong.Option{
+		kong.Name(name),
+		kong.NoDefaultHelp(),
+		kong.Writers(stdout, stderr),
+		kong.Exit(func(int) {}),
+	}
+	opts = append(opts, options...)
+	parser, err := kong.New(target, opts...)
+	if err != nil {
+		return err
+	}
+	_, err = parser.Parse(args)
+	return err
 }
 
 type runtime struct {
@@ -165,6 +211,9 @@ func (r *runtime) dispatch(rest []string) error {
 	case "tap", "cache-import":
 		return r.withLocalStoreLocked(false, func() error { return r.runWiretap(rest[1:]) })
 	case "search":
+		if hasHelpArg(rest[1:]) {
+			return printCommandUsage(r.stdout, []string{"search"})
+		}
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreRead(autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
 	case "tui":
@@ -173,6 +222,9 @@ func (r *runtime) dispatch(rest []string) error {
 		}
 		return r.withLocalStoreReadOnly(func() error { return r.runTUI(rest[1:]) })
 	case "messages":
+		if hasHelpArg(rest[1:]) {
+			return printCommandUsage(r.stdout, []string{"messages"})
+		}
 		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {
 			return r.withServicesAutoLocked(true, true, true, func() error { return r.runMessages(rest[1:]) })
 		}
@@ -189,6 +241,9 @@ func (r *runtime) dispatch(rest []string) error {
 	case "embed":
 		return r.withLocalStoreLocked(true, func() error { return r.runEmbed(rest[1:]) })
 	case "sql":
+		if hasHelpArg(rest[1:]) {
+			return printCommandUsage(r.stdout, []string{"sql"})
+		}
 		if boolFlagEnabled(rest[1:], "--unsafe") {
 			return r.withLocalStoreLocked(true, func() error { return r.runSQL(rest[1:]) })
 		}
