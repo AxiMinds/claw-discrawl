@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.7.2 - Unreleased
+## 0.7.2 - 2026-05-11
 
 ### Changes
+
+### Fixes
+
+- Kept Git snapshot imports incremental when metadata, attachment, mention, or event tables changed alongside the message tail, avoiding full archive replays for routine updates.
 
 ## 0.7.1 - 2026-05-11
 

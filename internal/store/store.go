@@ -206,15 +206,56 @@ func (s *Store) RebuildSearchIndexes(ctx context.Context) error {
 	if err := s.rebuildMemberFTS(ctx); err != nil {
 		return err
 	}
+	return s.stampSearchIndexVersions(ctx, true, true)
+}
+
+func (s *Store) RebuildMessageSearchIndex(ctx context.Context) error {
+	if err := s.rebuildFTS(ctx); err != nil {
+		return err
+	}
+	return s.stampSearchIndexVersions(ctx, true, false)
+}
+
+func (s *Store) RebuildMemberSearchIndex(ctx context.Context) error {
+	if err := s.rebuildMemberFTS(ctx); err != nil {
+		return err
+	}
+	return s.stampSearchIndexVersions(ctx, false, true)
+}
+
+func (s *Store) stampSearchIndexVersions(ctx context.Context, message, member bool) error {
 	now := time.Now().UTC().Format(timeLayout)
-	if _, err := s.db.ExecContext(ctx, `
+	switch {
+	case message && member:
+		if _, err := s.db.ExecContext(ctx, `
 		insert into sync_state(scope, cursor, updated_at)
 		values(?, ?, ?), (?, ?, ?)
 		on conflict(scope) do update set
 			cursor=excluded.cursor,
 			updated_at=excluded.updated_at
 	`, "schema:message_fts_rowid_version", messageFTSVersion, now, "schema:member_fts_rowid_version", memberFTSVersion, now); err != nil {
-		return fmt.Errorf("stamp search index versions: %w", err)
+			return fmt.Errorf("stamp search index versions: %w", err)
+		}
+	case message:
+		if _, err := s.db.ExecContext(ctx, `
+		insert into sync_state(scope, cursor, updated_at)
+		values(?, ?, ?)
+		on conflict(scope) do update set
+			cursor=excluded.cursor,
+			updated_at=excluded.updated_at
+	`, "schema:message_fts_rowid_version", messageFTSVersion, now); err != nil {
+			return fmt.Errorf("stamp message search index version: %w", err)
+		}
+	case member:
+		if _, err := s.db.ExecContext(ctx, `
+		insert into sync_state(scope, cursor, updated_at)
+		values(?, ?, ?)
+		on conflict(scope) do update set
+			cursor=excluded.cursor,
+			updated_at=excluded.updated_at
+	`, "schema:member_fts_rowid_version", memberFTSVersion, now); err != nil {
+			return fmt.Errorf("stamp member search index version: %w", err)
+		}
 	}
 	return nil
 }

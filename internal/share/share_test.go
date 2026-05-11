@@ -133,6 +133,121 @@ func TestImportIfChangedUsesIncrementalTailImport(t *testing.T) {
 	require.Contains(t, state, `"file_manifests"`)
 }
 
+func TestImportIfChangedUsesMixedIncrementalPlanForMetadataChanges(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	repo := filepath.Join(t.TempDir(), "share")
+	manifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	_, changed, err := ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	require.NoError(t, src.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "launch", RawJSON: `{}`}))
+	require.NoError(t, src.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "peter",
+		DisplayName: "Launch Peter",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{"bio":"delta member"}`,
+	}))
+	require.NoError(t, src.UpsertMessages(ctx, []store.MessageMutation{{
+		Record: store.MessageRecord{
+			ID:                "m2",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "launch",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			MessageType:       0,
+			CreatedAt:         now,
+			Content:           "mixed delta landed",
+			NormalizedContent: "mixed delta landed",
+			RawJSON:           `{"author":{"username":"Peter"}}`,
+		},
+		EventType:   "upsert",
+		PayloadJSON: `{"id":"m2"}`,
+		Options:     store.WriteOptions{AppendEvent: true},
+		Attachments: []store.AttachmentRecord{{
+			AttachmentID: "a2",
+			MessageID:    "m2",
+			GuildID:      "g1",
+			ChannelID:    "c1",
+			AuthorID:     "u1",
+			Filename:     "delta.txt",
+			TextContent:  "attached delta",
+		}},
+		Mentions: []store.MentionEventRecord{{
+			MessageID:  "m2",
+			GuildID:    "g1",
+			ChannelID:  "c1",
+			AuthorID:   "u1",
+			TargetType: "role",
+			TargetID:   "r2",
+			TargetName: "Launch",
+			EventAt:    now,
+		}},
+	}}))
+	updated, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.NotEqual(t, manifest.GeneratedAt, updated.GeneratedAt)
+
+	previous, ok := PreviousImportedManifest(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.True(t, ok)
+	planned, supported := shareIncrementalPlan(snapshot.PlanIncrementalImport(snapshotManifest(previous), snapshotManifest(updated)))
+	require.True(t, supported, "%+v", planned)
+	require.Equal(t, snapshot.TableImportReplace, importPlanTable(t, planned, "channels").Mode)
+	require.Equal(t, snapshot.TableImportReplace, importPlanTable(t, planned, "members").Mode)
+	require.Equal(t, snapshot.TableImportFiles, importPlanTable(t, planned, "messages").Mode)
+	require.Equal(t, snapshot.TableImportReplace, importPlanTable(t, planned, "message_events").Mode)
+	require.Equal(t, snapshot.TableImportReplace, importPlanTable(t, planned, "message_attachments").Mode)
+	require.Equal(t, snapshot.TableImportReplace, importPlanTable(t, planned, "mention_events").Mode)
+
+	var progress []ImportProgress
+	imported, changed, err := ImportIfChanged(ctx, dst, Options{
+		RepoPath: repo,
+		Branch:   "main",
+		Progress: func(p ImportProgress) { progress = append(progress, p) },
+	})
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, updated.GeneratedAt, imported.GeneratedAt)
+	require.Contains(t, progressPhases(progress), "rebuild_fts")
+	require.Contains(t, progressPhases(progress), "rebuild_member_fts")
+	require.Equal(t, importPlanRowCount(planned), progressTotalRows(t, progress, "start"))
+	require.Positive(t, progressTotalRows(t, progress, "start"))
+
+	results, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "checklist", Channel: "launch", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "m1", results[0].MessageID)
+
+	results, err = dst.SearchMessages(ctx, store.SearchOptions{Query: "mixed delta", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "m2", results[0].MessageID)
+	_, rows, err := dst.ReadOnlyQuery(ctx, "select name from channels where id = 'c1'")
+	require.NoError(t, err)
+	require.Equal(t, "launch", rows[0][0])
+	_, rows, err = dst.ReadOnlyQuery(ctx, "select count(*) from mention_events")
+	require.NoError(t, err)
+	require.Equal(t, "2", rows[0][0])
+	_, rows, err = dst.ReadOnlyQuery(ctx, "select count(*) from message_events")
+	require.NoError(t, err)
+	require.Equal(t, "2", rows[0][0])
+	_, rows, err = dst.ReadOnlyQuery(ctx, "select count(*) from member_fts where member_fts match 'delta'")
+	require.NoError(t, err)
+	require.Equal(t, "1", rows[0][0])
+}
+
 func TestImportIfChangedInfersLegacyManifestFilesFromGit(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
@@ -1261,6 +1376,17 @@ func tableEntry(t *testing.T, manifest Manifest, name string) TableManifest {
 	return TableManifest{}
 }
 
+func importPlanTable(t *testing.T, plan snapshot.ImportPlan, name string) snapshot.TableImportPlan {
+	t.Helper()
+	for _, table := range plan.Tables {
+		if table.Table.Name == name {
+			return table
+		}
+	}
+	t.Fatalf("plan table %s not found", name)
+	return snapshot.TableImportPlan{}
+}
+
 func tableNames(manifest Manifest) []string {
 	names := make([]string, 0, len(manifest.Tables))
 	for _, table := range manifest.Tables {
@@ -1275,4 +1401,15 @@ func progressPhases(progress []ImportProgress) []string {
 		phases = append(phases, item.Phase)
 	}
 	return phases
+}
+
+func progressTotalRows(t *testing.T, progress []ImportProgress, phase string) int {
+	t.Helper()
+	for _, item := range progress {
+		if item.Phase == phase {
+			return item.TotalRows
+		}
+	}
+	t.Fatalf("progress phase %s not found", phase)
+	return 0
 }

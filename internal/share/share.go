@@ -320,7 +320,7 @@ func ImportIncremental(ctx context.Context, s *store.Store, opts Options, previo
 		}
 		return manifest, false, nil
 	}
-	opts.reportProgress(ImportProgress{Phase: "start", TotalRows: manifestRowCount(manifest)})
+	opts.reportProgress(ImportProgress{Phase: "start", TotalRows: importPlanRowCount(plan)})
 	restorePragmas, err := applyImportPragmas(ctx, s.DB())
 	if err != nil {
 		return Manifest{}, false, err
@@ -370,6 +370,19 @@ func ImportIncremental(ctx context.Context, s *store.Store, opts Options, previo
 	}); err != nil {
 		return Manifest{}, false, err
 	}
+	rebuildMessageFTS, rebuildMemberFTS := importPlanSearchRebuilds(plan)
+	if rebuildMessageFTS {
+		opts.reportProgress(ImportProgress{Phase: "rebuild_fts"})
+		if err := s.RebuildMessageSearchIndex(ctx); err != nil {
+			return Manifest{}, false, err
+		}
+	}
+	if rebuildMemberFTS {
+		opts.reportProgress(ImportProgress{Phase: "rebuild_member_fts"})
+		if err := s.RebuildMemberSearchIndex(ctx); err != nil {
+			return Manifest{}, false, err
+		}
+	}
 	if err := MarkImported(ctx, s, manifest); err != nil {
 		return Manifest{}, false, err
 	}
@@ -377,7 +390,7 @@ func ImportIncremental(ctx context.Context, s *store.Store, opts Options, previo
 		return Manifest{}, false, err
 	}
 	pragmasRestored = true
-	opts.reportProgress(ImportProgress{Phase: "done", TotalRows: manifestRowCount(manifest)})
+	opts.reportProgress(ImportProgress{Phase: "done", TotalRows: importPlanRowCount(plan)})
 	return manifest, true, nil
 }
 
@@ -396,6 +409,41 @@ func manifestRowCount(manifest Manifest) int {
 		total += embeddings.Rows
 	}
 	return total
+}
+
+func importPlanRowCount(plan snapshot.ImportPlan) int {
+	if plan.Full {
+		return 0
+	}
+	total := 0
+	for _, tablePlan := range plan.Tables {
+		switch tablePlan.Mode {
+		case snapshot.TableImportReplace:
+			total += tablePlan.Table.Rows
+		case snapshot.TableImportFiles:
+			for _, file := range tablePlan.Files {
+				total += file.Rows
+			}
+		}
+	}
+	return total
+}
+
+func importPlanSearchRebuilds(plan snapshot.ImportPlan) (bool, bool) {
+	rebuildMessageFTS := false
+	rebuildMemberFTS := false
+	for _, tablePlan := range plan.Tables {
+		if tablePlan.Mode == snapshot.TableImportSkip {
+			continue
+		}
+		switch tablePlan.Table.Name {
+		case "channels":
+			rebuildMessageFTS = true
+		case "members":
+			rebuildMemberFTS = true
+		}
+	}
+	return rebuildMessageFTS, rebuildMemberFTS
 }
 
 func ImportEmbeddings(ctx context.Context, s *store.Store, opts Options, manifest Manifest) error {
@@ -590,19 +638,21 @@ func shareIncrementalPlan(plan snapshot.ImportPlan) (snapshot.ImportPlan, bool) 
 			switch tablePlan.Table.Name {
 			case "messages":
 				out.Tables = append(out.Tables, tablePlan)
-			case "sync_state":
+			case "guilds", "channels", "members", "message_events", "message_attachments", "mention_events", "sync_state":
 				tablePlan.Mode = snapshot.TableImportReplace
 				tablePlan.Files = nil
-				tablePlan.Reason = "replace sync_state to avoid stale cursors"
+				tablePlan.Reason = "replace changed " + tablePlan.Table.Name + " snapshot table"
 				out.Tables = append(out.Tables, tablePlan)
 			default:
 				return plan, false
 			}
 		case snapshot.TableImportReplace:
-			if tablePlan.Table.Name != "sync_state" {
+			switch tablePlan.Table.Name {
+			case "guilds", "channels", "members", "message_events", "message_attachments", "mention_events", "sync_state":
+				out.Tables = append(out.Tables, tablePlan)
+			default:
 				return plan, false
 			}
-			out.Tables = append(out.Tables, tablePlan)
 		default:
 			return plan, false
 		}
