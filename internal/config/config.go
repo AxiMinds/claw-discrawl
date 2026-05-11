@@ -7,10 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/adrg/xdg"
 	crawlconfig "github.com/openclaw/crawlkit/config"
 )
 
@@ -20,8 +18,6 @@ const (
 	DefaultTokenKeyringService = "discrawl"
 	DefaultTokenKeyringAccount = "discord_bot_token"
 )
-
-var xdgMu sync.Mutex
 
 type Config struct {
 	Version        int           `toml:"version"`
@@ -89,9 +85,25 @@ type TokenResolution struct {
 	Path   string
 }
 
+var appConfig = crawlconfig.App{
+	Name:          "discrawl",
+	ConfigEnv:     DefaultConfigEnv,
+	LegacyBaseDir: "~/.discrawl",
+	PlatformDirs:  true,
+}
+
 func Default() Config {
 	home, _ := os.UserHomeDir()
-	paths := defaultPaths(home)
+	paths, err := appConfig.DefaultPaths()
+	if err != nil {
+		base := filepath.Join(home, ".discrawl")
+		paths = crawlconfig.Paths{
+			DBPath:   filepath.Join(base, "discrawl.db"),
+			CacheDir: filepath.Join(base, "cache"),
+			LogDir:   filepath.Join(base, "logs"),
+			ShareDir: filepath.Join(base, "share"),
+		}
+	}
 	return Config{
 		Version:        1,
 		DBPath:         paths.DBPath,
@@ -149,22 +161,12 @@ func defaultSyncConcurrency() int {
 }
 
 func ResolvePath(flagPath string) string {
-	if strings.TrimSpace(flagPath) != "" {
-		return crawlconfig.ExpandHome(flagPath)
+	path, err := appConfig.ResolveConfigPath(flagPath)
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".discrawl", "config.toml")
 	}
-	if envPath := strings.TrimSpace(os.Getenv(DefaultConfigEnv)); envPath != "" {
-		return crawlconfig.ExpandHome(envPath)
-	}
-	home, _ := os.UserHomeDir()
-	paths := xdgPaths()
-	legacy := legacyPaths(home)
-	// Preserve early ~/.discrawl installs even when XDG env vars are present:
-	// many desktops set them globally, and that should not silently strand an
-	// existing config. DISCRAWL_CONFIG/--config remain the explicit opt-out.
-	if pathExists(legacy.ConfigPath) && !pathExists(paths.ConfigPath) {
-		return legacy.ConfigPath
-	}
-	return paths.ConfigPath
+	return path
 }
 
 func Load(path string) (Config, error) {
@@ -319,62 +321,6 @@ func defaultDiscordDesktopPath(home string) string {
 func homeDir() string {
 	home, _ := os.UserHomeDir()
 	return home
-}
-
-func defaultPaths(home string) crawlconfig.Paths {
-	// New installs use platform-native locations from adrg/xdg. Early Discrawl
-	// installs wrote every runtime file under ~/.discrawl, so each runtime path
-	// falls back to its legacy counterpart only when that legacy file or
-	// directory already exists and the new location does not. This intentionally
-	// applies even when XDG env vars are set, because those env vars are often
-	// part of the ambient desktop environment rather than a migration request.
-	paths := xdgPaths()
-	legacy := legacyPaths(home)
-	if pathExists(legacy.DBPath) && !pathExists(paths.DBPath) {
-		paths.DBPath = legacy.DBPath
-	}
-	if pathExists(legacy.CacheDir) && !pathExists(paths.CacheDir) {
-		paths.CacheDir = legacy.CacheDir
-	}
-	if pathExists(legacy.LogDir) && !pathExists(paths.LogDir) {
-		paths.LogDir = legacy.LogDir
-	}
-	if pathExists(legacy.ShareDir) && !pathExists(paths.ShareDir) {
-		paths.ShareDir = legacy.ShareDir
-	}
-	return paths
-}
-
-func xdgPaths() crawlconfig.Paths {
-	xdgMu.Lock()
-	defer xdgMu.Unlock()
-
-	xdg.Reload()
-	return crawlconfig.Paths{
-		BaseDir:    filepath.Join(xdg.DataHome, "discrawl"),
-		ConfigPath: filepath.Join(xdg.ConfigHome, "discrawl", "config.toml"),
-		DBPath:     filepath.Join(xdg.DataHome, "discrawl", "discrawl.db"),
-		CacheDir:   filepath.Join(xdg.CacheHome, "discrawl"),
-		LogDir:     filepath.Join(xdg.StateHome, "discrawl", "logs"),
-		ShareDir:   filepath.Join(xdg.DataHome, "discrawl", "share"),
-	}
-}
-
-func legacyPaths(home string) crawlconfig.Paths {
-	base := filepath.Join(home, ".discrawl")
-	return crawlconfig.Paths{
-		BaseDir:    base,
-		ConfigPath: filepath.Join(base, "config.toml"),
-		DBPath:     filepath.Join(base, "discrawl.db"),
-		CacheDir:   filepath.Join(base, "cache"),
-		LogDir:     filepath.Join(base, "logs"),
-		ShareDir:   filepath.Join(base, "share"),
-	}
-}
-
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func (c Config) EffectiveDefaultGuildID() string {

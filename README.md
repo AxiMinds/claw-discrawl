@@ -109,10 +109,13 @@ unless you set XDG variables yourself.
 - macOS config/database/share/logs: `~/Library/Application Support/discrawl/`
 - macOS cache: `~/Library/Caches/discrawl/`
 
-Existing installs that already have `~/.discrawl/config.toml` continue to load that config when
-the new default config file does not exist. This is true even if XDG variables are set globally by
-your desktop. To migrate deliberately, copy or create the new config file first, or point Discrawl
-at it with `--config` / `DISCRAWL_CONFIG`.
+Upgrades do not move your database automatically. Existing installs that
+already have `~/.discrawl/config.toml` continue to load that config when the
+new default config file does not exist. Missing runtime paths also keep using
+existing legacy files or directories, such as `~/.discrawl/discrawl.db`, until
+the matching new path exists. To migrate deliberately, copy or create the new
+config file first, or point Discrawl at it with `--config` / `DISCRAWL_CONFIG`,
+then copy the database/share/cache/log paths you want to move.
 
 ## Install
 

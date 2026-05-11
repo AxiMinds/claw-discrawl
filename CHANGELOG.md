@@ -4,7 +4,14 @@
 
 ### Changes
 
+- New installs now use OS-native config/runtime paths via crawlkit, while
+  existing `~/.discrawl` installs keep working until users deliberately migrate.
 - Moved top-level CLI parsing onto Kong while preserving Discrawl's existing command dispatch and archive lock policy.
+
+### Maintenance
+
+- Moved Discrawl's platform path policy back into crawlkit so config, data,
+  cache, log, and share directory defaults stay shared across crawler apps.
 
 ### Fixes
 

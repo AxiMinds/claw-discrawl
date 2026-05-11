@@ -64,7 +64,7 @@ func TestDefaultPathsUseXDGDirs(t *testing.T) {
 }
 
 func TestDefaultPathsUseXDGFallbacks(t *testing.T) {
-	// With no XDG env vars, use the adrg/xdg platform defaults.
+	// With no XDG env vars, use crawlkit's platform defaults.
 	home := t.TempDir()
 	configHome, dataHome, cacheHome, stateHome := defaultXDGTestDirs(home)
 	setTestHome(t, home)
@@ -432,7 +432,7 @@ func TestExpandPath(t *testing.T) {
 func TestResolvePath(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "env.toml")
-	// ResolvePath reads process-wide home/XDG state through adrg/xdg; isolate
+	// ResolvePath reads process-wide home/XDG state through crawlkit; isolate
 	// the test so host XDG variables or Windows known-folder env vars do not
 	// leak into the fallback assertion below.
 	setTestHome(t, dir)

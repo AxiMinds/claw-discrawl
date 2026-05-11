@@ -27,15 +27,18 @@ On macOS, Discrawl uses the platform's `~/Library` locations:
 If you set `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, or `XDG_STATE_HOME`, those
 variables choose the new default locations on any OS.
 
-Existing installs are preserved before those new locations take over. If `~/.discrawl/config.toml`
-exists and the new default config file does not, Discrawl keeps loading the legacy config. Missing
-runtime fields also keep using existing legacy files or directories under `~/.discrawl` when the
-new location does not exist yet. This avoids breaking users whose desktop already sets XDG
-variables globally.
+Upgrades do not move your database automatically. Existing installs are
+preserved before those new locations take over. If `~/.discrawl/config.toml`
+exists and the new default config file does not, Discrawl keeps loading the
+legacy config. Missing runtime fields also keep using existing legacy files or
+directories under `~/.discrawl` when the new location does not exist yet. This
+avoids breaking users whose desktop already sets XDG variables globally.
 
-To migrate deliberately, copy or create the new config file first, or point Discrawl at it with
-`--config` / `DISCRAWL_CONFIG`. Runtime paths switch one-by-one: once the new database, cache,
-logs, or share path exists, that path wins over the legacy `~/.discrawl` counterpart.
+To migrate deliberately, copy or create the new config file first, or point
+Discrawl at it with `--config` / `DISCRAWL_CONFIG`. Runtime paths switch
+one-by-one: once the new database, cache, logs, or share path exists, that path
+wins over the legacy `~/.discrawl` counterpart. Copy the SQLite database before
+creating the new database path if you want to preserve the existing archive.
 
 ## File layout
 

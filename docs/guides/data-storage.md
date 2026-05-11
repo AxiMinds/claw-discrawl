@@ -5,8 +5,10 @@ Everything lives in one local SQLite file. By default, Discrawl stores it at
 `~/Library/Application Support/discrawl/discrawl.db` on macOS. Setting `XDG_DATA_HOME` overrides
 the new default base directory on any OS.
 
-Existing `~/.discrawl/discrawl.db` installs continue to use that database until the new default
-database file exists. This keeps old installs working on systems that already set XDG variables.
+Existing `~/.discrawl/discrawl.db` installs continue to use that database until
+the new default database file exists. Discrawl does not copy or migrate the
+SQLite file during upgrade. Copy it yourself before creating the new database
+path if you want to move an existing archive to the platform-native location.
 
 ## What is stored
 
