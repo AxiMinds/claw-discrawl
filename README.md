@@ -135,6 +135,16 @@ go build -o bin/discrawl ./cmd/discrawl
 ./bin/discrawl --version
 ```
 
+Docker:
+
+```bash
+docker build -t discrawl .
+docker run --rm -e DISCORD_BOT_TOKEN -v "$PWD/.discrawl:/data" discrawl doctor
+docker run --rm -e DISCORD_BOT_TOKEN -v "$PWD/.discrawl:/data" discrawl sync
+```
+
+The image stores config, SQLite data, cache, and Git snapshot state under `/data`.
+
 Examples below assume `discrawl` is on `PATH`. If you built from source without installing it, replace `discrawl` with `./bin/discrawl`.
 
 ## Quick Start
