@@ -38,14 +38,6 @@ create table members (
 	role_ids_json text not null,
 	raw_json text not null,
 	updated_at text not null,
-	bio text not null default '',
-	pronouns text not null default '',
-	location text not null default '',
-	website text not null default '',
-	x_handle text not null default '',
-	github_login text not null default '',
-	urls_json text not null default '[]',
-	profile_updated_at text,
 	primary key (guild_id, user_id)
 );
 

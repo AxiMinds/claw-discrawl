@@ -47,27 +47,19 @@ type Guild struct {
 }
 
 type Member struct {
-	GuildID          string
-	UserID           string
-	Username         string
-	GlobalName       sql.NullString
-	DisplayName      sql.NullString
-	Nick             sql.NullString
-	Discriminator    sql.NullString
-	Avatar           sql.NullString
-	Bot              int64
-	JoinedAt         sql.NullString
-	RoleIdsJson      string
-	RawJson          string
-	UpdatedAt        string
-	Bio              string
-	Pronouns         string
-	Location         string
-	Website          string
-	XHandle          string
-	GithubLogin      string
-	UrlsJson         string
-	ProfileUpdatedAt sql.NullString
+	GuildID       string
+	UserID        string
+	Username      string
+	GlobalName    sql.NullString
+	DisplayName   sql.NullString
+	Nick          sql.NullString
+	Discriminator sql.NullString
+	Avatar        sql.NullString
+	Bot           int64
+	JoinedAt      sql.NullString
+	RoleIdsJson   string
+	RawJson       string
+	UpdatedAt     string
 }
 
 type MemberFt struct {
