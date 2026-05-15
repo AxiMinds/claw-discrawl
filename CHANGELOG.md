@@ -1,12 +1,13 @@
 # Changelog
 
-## 0.7.3 - Unreleased
+## 0.8.0 - 2026-05-15
 
 ### Changes
 
 - Added attachment media caching with `discrawl attachments`, `attachments fetch`, `sync --with-media`, and Git snapshot backup/restore for cached non-DM media files.
 - Documented media backup flow, including CDN fetch failures, local cache behavior, and Git snapshot publishing.
 - Docker: add a local image with `/data` persistence and CI smoke coverage.
+- Moved stable store SQL for sync state, messages, attachments, embedding jobs, members, and status reads/writes to sqlc-generated typed wrappers while leaving dynamic FTS, semantic search, report, share, and user SQL handwritten.
 
 ### Fixes
 
