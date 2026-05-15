@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/openclaw/discrawl/internal/store/storedb"
 )
 
 type GuildRecord struct {
@@ -585,19 +587,15 @@ func replaceMentionEventsTx(ctx context.Context, tx *sql.Tx, messageID string, m
 }
 
 func (s *Store) SetSyncState(ctx context.Context, scope, cursor string) error {
-	_, err := s.db.ExecContext(ctx, `
-		insert into sync_state(scope, cursor, updated_at)
-		values(?, ?, ?)
-		on conflict(scope) do update set
-			cursor=excluded.cursor,
-			updated_at=excluded.updated_at
-	`, scope, cursor, time.Now().UTC().Format(timeLayout))
-	return err
+	return s.q.SetSyncState(ctx, storedb.SetSyncStateParams{
+		Scope:     scope,
+		Cursor:    nullString(cursor),
+		UpdatedAt: time.Now().UTC().Format(timeLayout),
+	})
 }
 
 func (s *Store) DeleteSyncState(ctx context.Context, scope string) error {
-	_, err := s.db.ExecContext(ctx, `delete from sync_state where scope = ?`, scope)
-	return err
+	return s.q.DeleteSyncState(ctx, scope)
 }
 
 func rollback(tx *sql.Tx) {
@@ -618,6 +616,13 @@ func nullable(v string) any {
 		return nil
 	}
 	return v
+}
+
+func nullString(v string) sql.NullString {
+	if v == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: v, Valid: true}
 }
 
 func upsertMemberFTSTx(ctx context.Context, tx *sql.Tx, member MemberRecord) error {

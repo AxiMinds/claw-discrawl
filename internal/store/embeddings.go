@@ -495,9 +495,8 @@ func DecodeEmbeddingVector(blob []byte) ([]float32, error) {
 }
 
 func (s *Store) EmbeddingBacklog(ctx context.Context) (int, error) {
-	var count int
-	err := s.db.QueryRowContext(ctx, `select count(*) from embedding_jobs where state = 'pending'`).Scan(&count)
-	return count, err
+	count, err := s.q.CountEmbeddingBacklog(ctx)
+	return int(count), err
 }
 
 func (s *Store) RequeueAllEmbeddingJobs(ctx context.Context, opts EmbeddingDrainOptions) (int, error) {
