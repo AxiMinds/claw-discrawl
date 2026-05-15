@@ -373,3 +373,105 @@ set state = 'pending',
 	locked_at = null,
 	updated_at = ?
 where message_id in (select id from messages);
+
+-- name: ListPendingEmbeddingJobs :many
+select
+	j.message_id,
+	m.normalized_content,
+	j.attempts,
+	j.provider,
+	j.model,
+	j.input_version
+from embedding_jobs j
+join messages m on m.id = j.message_id
+where j.state = 'pending'
+  and (j.locked_at is null or j.locked_at = '' or j.locked_at < ?)
+order by j.updated_at, j.message_id
+limit ?;
+
+-- name: ResetEmbeddingJobIdentity :exec
+update embedding_jobs
+set provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;
+
+-- name: ResetEmbeddingJobIdentityAndAttempts :exec
+update embedding_jobs
+set provider = ?,
+	model = ?,
+	input_version = ?,
+	attempts = 0,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;
+
+-- name: LockEmbeddingJob :execrows
+update embedding_jobs
+set locked_at = sqlc.arg(locked_at), updated_at = sqlc.arg(updated_at)
+where message_id = sqlc.arg(message_id)
+  and state = 'pending'
+  and (locked_at is null or locked_at = '' or locked_at < sqlc.arg(stale_before));
+
+-- name: UpsertMessageEmbedding :exec
+insert into message_embeddings(
+	message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+) values(?, ?, ?, ?, ?, ?, ?)
+on conflict(message_id, provider, model, input_version) do update set
+	dimensions = excluded.dimensions,
+	embedding_blob = excluded.embedding_blob,
+	embedded_at = excluded.embedded_at;
+
+-- name: DeleteMessageEmbeddingsByMessage :exec
+delete from message_embeddings
+where message_id = ?;
+
+-- name: MarkEmbeddingJobDone :exec
+update embedding_jobs
+set state = 'done',
+	attempts = 0,
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;
+
+-- name: MarkEmptyEmbeddingJobDone :exec
+update embedding_jobs
+set state = 'done',
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;
+
+-- name: MarkEmbeddingJobRateLimited :exec
+update embedding_jobs
+set state = 'pending',
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = ?,
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;
+
+-- name: MarkEmbeddingJobFailed :exec
+update embedding_jobs
+set state = ?,
+	attempts = ?,
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = ?,
+	locked_at = null,
+	updated_at = ?
+where message_id = ?;

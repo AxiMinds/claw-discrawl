@@ -243,6 +243,16 @@ func (q *Queries) DeleteMessageEmbeddingsByGuild(ctx context.Context, guildID st
 	return err
 }
 
+const deleteMessageEmbeddingsByMessage = `-- name: DeleteMessageEmbeddingsByMessage :exec
+delete from message_embeddings
+where message_id = ?
+`
+
+func (q *Queries) DeleteMessageEmbeddingsByMessage(ctx context.Context, messageID string) error {
+	_, err := q.db.ExecContext(ctx, deleteMessageEmbeddingsByMessage, messageID)
+	return err
+}
+
 const deleteMessageEventsByGuild = `-- name: DeleteMessageEventsByGuild :exec
 delete from message_events
 where guild_id = ?
@@ -1014,6 +1024,228 @@ func (q *Queries) ListMembersByUserID(ctx context.Context, userID string) ([]Lis
 	return items, nil
 }
 
+const listPendingEmbeddingJobs = `-- name: ListPendingEmbeddingJobs :many
+select
+	j.message_id,
+	m.normalized_content,
+	j.attempts,
+	j.provider,
+	j.model,
+	j.input_version
+from embedding_jobs j
+join messages m on m.id = j.message_id
+where j.state = 'pending'
+  and (j.locked_at is null or j.locked_at = '' or j.locked_at < ?)
+order by j.updated_at, j.message_id
+limit ?
+`
+
+type ListPendingEmbeddingJobsParams struct {
+	LockedAt sql.NullString
+	Limit    int64
+}
+
+type ListPendingEmbeddingJobsRow struct {
+	MessageID         string
+	NormalizedContent string
+	Attempts          int64
+	Provider          string
+	Model             string
+	InputVersion      string
+}
+
+func (q *Queries) ListPendingEmbeddingJobs(ctx context.Context, arg ListPendingEmbeddingJobsParams) ([]ListPendingEmbeddingJobsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingEmbeddingJobs, arg.LockedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingEmbeddingJobsRow
+	for rows.Next() {
+		var i ListPendingEmbeddingJobsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.NormalizedContent,
+			&i.Attempts,
+			&i.Provider,
+			&i.Model,
+			&i.InputVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockEmbeddingJob = `-- name: LockEmbeddingJob :execrows
+update embedding_jobs
+set locked_at = ?1, updated_at = ?2
+where message_id = ?3
+  and state = 'pending'
+  and (locked_at is null or locked_at = '' or locked_at < ?4)
+`
+
+type LockEmbeddingJobParams struct {
+	LockedAt    sql.NullString
+	UpdatedAt   string
+	MessageID   string
+	StaleBefore sql.NullString
+}
+
+func (q *Queries) LockEmbeddingJob(ctx context.Context, arg LockEmbeddingJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, lockEmbeddingJob,
+		arg.LockedAt,
+		arg.UpdatedAt,
+		arg.MessageID,
+		arg.StaleBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markEmbeddingJobDone = `-- name: MarkEmbeddingJobDone :exec
+update embedding_jobs
+set state = 'done',
+	attempts = 0,
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type MarkEmbeddingJobDoneParams struct {
+	Provider     string
+	Model        string
+	InputVersion string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) MarkEmbeddingJobDone(ctx context.Context, arg MarkEmbeddingJobDoneParams) error {
+	_, err := q.db.ExecContext(ctx, markEmbeddingJobDone,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
+}
+
+const markEmbeddingJobFailed = `-- name: MarkEmbeddingJobFailed :exec
+update embedding_jobs
+set state = ?,
+	attempts = ?,
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = ?,
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type MarkEmbeddingJobFailedParams struct {
+	State        string
+	Attempts     int64
+	Provider     string
+	Model        string
+	InputVersion string
+	LastError    string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) MarkEmbeddingJobFailed(ctx context.Context, arg MarkEmbeddingJobFailedParams) error {
+	_, err := q.db.ExecContext(ctx, markEmbeddingJobFailed,
+		arg.State,
+		arg.Attempts,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.LastError,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
+}
+
+const markEmbeddingJobRateLimited = `-- name: MarkEmbeddingJobRateLimited :exec
+update embedding_jobs
+set state = 'pending',
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = ?,
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type MarkEmbeddingJobRateLimitedParams struct {
+	Provider     string
+	Model        string
+	InputVersion string
+	LastError    string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) MarkEmbeddingJobRateLimited(ctx context.Context, arg MarkEmbeddingJobRateLimitedParams) error {
+	_, err := q.db.ExecContext(ctx, markEmbeddingJobRateLimited,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.LastError,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
+}
+
+const markEmptyEmbeddingJobDone = `-- name: MarkEmptyEmbeddingJobDone :exec
+update embedding_jobs
+set state = 'done',
+	provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type MarkEmptyEmbeddingJobDoneParams struct {
+	Provider     string
+	Model        string
+	InputVersion string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) MarkEmptyEmbeddingJobDone(ctx context.Context, arg MarkEmptyEmbeddingJobDoneParams) error {
+	_, err := q.db.ExecContext(ctx, markEmptyEmbeddingJobDone,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
+}
+
 const markMessageDeleted = `-- name: MarkMessageDeleted :exec
 update messages
 set deleted_at = ?, updated_at = ?
@@ -1062,6 +1294,67 @@ func (q *Queries) RequeueAllEmbeddingJobs(ctx context.Context, arg RequeueAllEmb
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const resetEmbeddingJobIdentity = `-- name: ResetEmbeddingJobIdentity :exec
+update embedding_jobs
+set provider = ?,
+	model = ?,
+	input_version = ?,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type ResetEmbeddingJobIdentityParams struct {
+	Provider     string
+	Model        string
+	InputVersion string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) ResetEmbeddingJobIdentity(ctx context.Context, arg ResetEmbeddingJobIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, resetEmbeddingJobIdentity,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
+}
+
+const resetEmbeddingJobIdentityAndAttempts = `-- name: ResetEmbeddingJobIdentityAndAttempts :exec
+update embedding_jobs
+set provider = ?,
+	model = ?,
+	input_version = ?,
+	attempts = 0,
+	last_error = '',
+	locked_at = null,
+	updated_at = ?
+where message_id = ?
+`
+
+type ResetEmbeddingJobIdentityAndAttemptsParams struct {
+	Provider     string
+	Model        string
+	InputVersion string
+	UpdatedAt    string
+	MessageID    string
+}
+
+func (q *Queries) ResetEmbeddingJobIdentityAndAttempts(ctx context.Context, arg ResetEmbeddingJobIdentityAndAttemptsParams) error {
+	_, err := q.db.ExecContext(ctx, resetEmbeddingJobIdentityAndAttempts,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.UpdatedAt,
+		arg.MessageID,
+	)
+	return err
 }
 
 const setSyncState = `-- name: SetSyncState :exec
@@ -1371,6 +1664,39 @@ func (q *Queries) UpsertMessage(ctx context.Context, arg UpsertMessageParams) er
 		arg.HasAttachments,
 		arg.RawJson,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const upsertMessageEmbedding = `-- name: UpsertMessageEmbedding :exec
+insert into message_embeddings(
+	message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+) values(?, ?, ?, ?, ?, ?, ?)
+on conflict(message_id, provider, model, input_version) do update set
+	dimensions = excluded.dimensions,
+	embedding_blob = excluded.embedding_blob,
+	embedded_at = excluded.embedded_at
+`
+
+type UpsertMessageEmbeddingParams struct {
+	MessageID     string
+	Provider      string
+	Model         string
+	InputVersion  string
+	Dimensions    int64
+	EmbeddingBlob []byte
+	EmbeddedAt    string
+}
+
+func (q *Queries) UpsertMessageEmbedding(ctx context.Context, arg UpsertMessageEmbeddingParams) error {
+	_, err := q.db.ExecContext(ctx, upsertMessageEmbedding,
+		arg.MessageID,
+		arg.Provider,
+		arg.Model,
+		arg.InputVersion,
+		arg.Dimensions,
+		arg.EmbeddingBlob,
+		arg.EmbeddedAt,
 	)
 	return err
 }
