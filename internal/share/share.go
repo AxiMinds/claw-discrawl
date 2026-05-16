@@ -44,6 +44,10 @@ const shardFlushRows = 1024
 
 var maxShardBytes int64 = 40 * 1024 * 1024
 
+// The share manifest stores compressed media size, not raw size. Keep gzip
+// restore/hash paths bounded so a malformed snapshot cannot expand forever.
+var maxSharedMediaDecompressedBytes int64 = 1 << 30
+
 var SnapshotTables = []string{
 	"guilds",
 	"channels",
@@ -1238,8 +1242,7 @@ func restoreGzipFile(target, source string) error {
 	}
 	defer func() { _ = gz.Close() }()
 	return writeAtomicFile(target, func(tmp *os.File) error {
-		_, err := io.Copy(tmp, gz)
-		return err
+		return copyWithLimit(tmp, gz, maxSharedMediaDecompressedBytes)
 	})
 }
 
@@ -1268,10 +1271,24 @@ func gzipFileSHA256(path string) (string, error) {
 	}
 	defer func() { _ = gz.Close() }()
 	hasher := sha256.New()
-	if _, err := io.Copy(hasher, gz); err != nil {
+	if err := copyWithLimit(hasher, gz, maxSharedMediaDecompressedBytes); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func copyWithLimit(dst io.Writer, src io.Reader, limit int64) error {
+	if limit <= 0 {
+		return errors.New("media decompression limit must be positive")
+	}
+	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
+	if err != nil {
+		return err
+	}
+	if n > limit {
+		return fmt.Errorf("media decompressed size exceeds %d bytes", limit)
+	}
+	return nil
 }
 
 func sameFileHash(path, hash string) bool {

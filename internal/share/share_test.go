@@ -613,6 +613,16 @@ func TestMediaCopyHashHelpers(t *testing.T) {
 	require.Error(t, copyGzipFile(filepath.Join(dir, "missing.gz"), filepath.Join(dir, "missing-source.bin")))
 	require.Error(t, restoreGzipFile(filepath.Join(dir, "bad.bin"), source))
 	require.Error(t, restoreGzipFile(filepath.Join(dir, "bad.bin"), filepath.Join(dir, "missing.gz")))
+
+	oldLimit := maxSharedMediaDecompressedBytes
+	maxSharedMediaDecompressedBytes = 4
+	t.Cleanup(func() { maxSharedMediaDecompressedBytes = oldLimit })
+	_, err = gzipFileSHA256(gzipTarget)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decompressed size")
+	err = restoreGzipFile(filepath.Join(dir, "too-large.bin"), gzipTarget)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decompressed size")
 }
 
 func TestPublicPermissionHelpers(t *testing.T) {
