@@ -5,10 +5,16 @@
 ### Changes
 
 - Media-enabled `discrawl publish` now migrates shared attachment media to gzip-compressed files while still importing older raw-media snapshots.
+- Semantic search now scores lightweight embedding rows first and hydrates full message details only for the winning results.
 
 ### Fixes
 
 - Bounded gzip media restore and hash verification so malformed shared snapshots cannot decompress unbounded data.
+- Cancelled concurrent message-sync workers when a peer hits a fatal channel error.
+- Rejected inaccessible explicit guild targets during `init --guild` and `sync --guild/--guilds` instead of silently treating them as successful empty syncs.
+- Hardened embedding snapshot imports against unsafe manifest paths, symlink escapes, and unbounded gzip input.
+- Limited FTS search fallback to missing or unsupported FTS infrastructure errors so unrelated query failures are reported.
+- Re-sniffed previously skipped wiretap cache files instead of treating unchanged skipped fingerprints as permanently unchanged.
 
 ## 0.8.0 - 2026-05-15
 
