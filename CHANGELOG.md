@@ -4,6 +4,8 @@
 
 ### Changes
 
+- Update `crawlkit` to v0.9.0.
+
 ### Fixes
 
 ## 0.9.1 - 2026-05-18
